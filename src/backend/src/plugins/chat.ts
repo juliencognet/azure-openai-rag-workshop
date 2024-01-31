@@ -53,6 +53,50 @@ export class ChatService {
     
     const content = results.join('\n');
 
+    // Set the context with the system message
+    const systemMessage = SYSTEM_MESSAGE_PROMPT;
+    
+    // Get the latest user message (the question), and inject the sources into it
+    const userMessage = `${messages[messages.length - 1].content}\n\nSources:\n${content}`;
+    
+    // Create the messages prompt
+    const messageBuilder = new MessageBuilder(systemMessage, this.chatGptModel);
+    messageBuilder.appendMessage('user', userMessage);
+
+    // Add the previous messages to the prompt, as long as we don't exceed the token limit
+    for (const historyMessage of messages.slice(0, -1).reverse()) {
+      if (messageBuilder.tokens > this.tokenLimit) break;
+      messageBuilder.appendMessage(historyMessage.role, historyMessage.content);
+    }
+
+    // Processing details, for debugging purposes
+    const conversation = messageBuilder.messages.map((m) => `${m.role}: ${m.content}`).join('\n\n');
+    const thoughts = `Search query:\n${query}\n\nConversation:\n${conversation}`.replaceAll('\n', '<br>');
+
+    const chatClient = this.chatClient({
+      temperature: 0.7,
+      maxTokens: 1024,
+      n: 1,
+    });
+    const completion = await chatClient.invoke(messageBuilder.getMessages());
+
+    // Return the response in the Chat specification format
+    return {
+      choices: [
+        {
+          index: 0,
+          message: {
+            content: completion.content as string,
+            role: 'assistant',
+            context: {
+              data_points: results,
+              thoughts: thoughts,
+            },
+          },
+        },
+      ],
+    };
+    
   }
 }
 
